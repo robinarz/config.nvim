@@ -1,6 +1,7 @@
 return {
   {
     "yetone/avante.nvim",
+    enabled = true,
     opts = {},
     build = "make",
     dependencies = {

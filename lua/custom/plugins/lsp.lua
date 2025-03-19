@@ -2,7 +2,19 @@ return {
   {
     "neovim/nvim-lspconfig",
     dependencies = {
-      "folke/neodev.nvim",
+      {
+        -- `lazydev` configures Lua LSP for your Neovim config, runtime and plugins
+        -- used for completion, annotations and signatures of Neovim apis
+        "folke/lazydev.nvim",
+        ft = "lua",
+        opts = {
+          library = {
+            -- Load luvit types when the `vim.uv` word is found
+            { path = "luvit-meta/library", words = { "vim%.uv" } },
+          },
+        },
+      },
+      { "Bilal2453/luvit-meta", lazy = true },
       "williamboman/mason.nvim",
       "williamboman/mason-lspconfig.nvim",
       "WhoIsSethDaniel/mason-tool-installer.nvim",
@@ -10,19 +22,43 @@ return {
       { "j-hui/fidget.nvim", opts = {} },
       { "https://git.sr.ht/~whynothugo/lsp_lines.nvim" },
 
+      { "elixir-tools/elixir-tools.nvim" },
+
       -- Autoformatting
       "stevearc/conform.nvim",
 
       -- Schema information
       "b0o/SchemaStore.nvim",
+      -- { dir = "~/plugins/ocaml.nvim" },
     },
     config = function()
-      require("neodev").setup {
-        -- library = {
-        --   plugins = { "nvim-dap-ui" },
-        --   types = true,
-        -- },
-      }
+      -- Don't do LSP stuff if we're in Obsidian Edit mode
+      if vim.g.obsidian then
+        return
+      end
+
+      local extend = function(name, key, values)
+        local mod = require(string.format("lspconfig.configs.%s", name))
+        local default = mod.default_config
+        local keys = vim.split(key, ".", { plain = true })
+        while #keys > 0 do
+          local item = table.remove(keys, 1)
+          default = default[item]
+        end
+
+        if vim.islist(default) then
+          for _, value in ipairs(default) do
+            table.insert(values, value)
+          end
+        else
+          for item, value in pairs(default) do
+            if not vim.tbl_contains(values, item) then
+              values[item] = value
+            end
+          end
+        end
+        return values
+      end
 
       local capabilities = nil
       if pcall(require, "cmp_nvim_lsp") then
@@ -112,19 +148,20 @@ return {
         --     },
         --   },
         -- },
+        --
+        -- ocamllsp = true,
 
         ocamllsp = {
           manual_install = true,
+          cmd = { "dune", "tools", "exec", "ocamllsp" },
+          -- cmd = { "dune", "exec", "ocamllsp" },
           settings = {
             codelens = { enable = true },
+            inlayHints = { enable = true },
+            syntaxDocumentation = { enable = true },
           },
 
-          filetypes = {
-            "ocaml",
-            "ocaml.interface",
-            "ocaml.menhir",
-            "ocaml.cram",
-          },
+          server_capabilities = { semanticTokensProvider = false },
 
           -- TODO: Check if i still need the filtypes stuff i had before
         },
@@ -152,7 +189,33 @@ return {
           init_options = { clangdFileStatus = true },
           filetypes = { "c" },
         },
+
+        tailwindcss = {
+          init_options = {
+            userLanguages = {
+              elixir = "phoenix-heex",
+              eruby = "erb",
+              heex = "phoenix-heex",
+            },
+          },
+          filetypes = extend("tailwindcss", "filetypes", { "ocaml.mlx" }),
+          settings = {
+            tailwindCSS = {
+              experimental = {
+                classRegex = {
+                  [[class: "([^"]*)]],
+                  [[className="([^"]*)]],
+                },
+              },
+              includeLanguages = extend("tailwindcss", "settings.tailwindCSS.includeLanguages", {
+                ["ocaml.mlx"] = "html",
+              }),
+            },
+          },
+        },
       }
+
+      -- require("ocaml").setup()
 
       local servers_to_install = vim.tbl_filter(function(key)
         local t = servers[key]
@@ -230,25 +293,21 @@ return {
         end,
       })
 
-      -- Autoformatting Setup
-      require("conform").setup {
-        formatters_by_ft = {
-          lua = { "stylua" },
-        },
-      }
-
-      vim.api.nvim_create_autocmd("BufWritePre", {
-        callback = function(args)
-          require("conform").format {
-            bufnr = args.buf,
-            lsp_fallback = true,
-            quiet = true,
-          }
-        end,
-      })
+      require("custom.autoformat").setup()
 
       require("lsp_lines").setup()
       vim.diagnostic.config { virtual_text = true, virtual_lines = false }
+
+      vim.keymap.set("", "<leader>l", function()
+        local config = vim.diagnostic.config() or {}
+        if config.virtual_text then
+          vim.diagnostic.config { virtual_text = false, virtual_lines = true }
+        else
+          vim.diagnostic.config { virtual_text = true, virtual_lines = false }
+        end
+      end, { desc = "Toggle lsp_lines" })
+
+      -- require("custom.elixir").setup()
     end,
   },
 }
